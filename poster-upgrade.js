@@ -1,5 +1,6 @@
 // LIFE EXIT poster readability + message upgrade.
-// Long theme titles are auto-fitted inside a strict safe area so they never clip.
+// Important: app.js draws the title once, then later draws body lines at y=285 etc.
+// We suppress ALL original body draws after replacing the first one, preventing old text from painting over titles.
 (() => {
   const originalFillText = CanvasRenderingContext2D.prototype.fillText;
   const strongCopy = {
@@ -16,63 +17,53 @@
   const state = new WeakMap();
 
   function splitLines(ctx, text, maxWidth) {
-    const chars = [...text], lines = [];
-    let line = '';
-    for (const ch of chars) {
-      if (ctx.measureText(line + ch).width > maxWidth && line) {
-        lines.push(line); line = ch;
-      } else line += ch;
+    const lines=[]; let line='';
+    for(const ch of [...text]){
+      if(line && ctx.measureText(line+ch).width>maxWidth){lines.push(line);line=ch}else line+=ch;
     }
-    if (line) lines.push(line);
+    if(line)lines.push(line);
     return lines;
   }
 
-  function fitTitle(ctx, text) {
-    let size = 82;
-    const maxWidth = 760;
-    do {
-      ctx.font = `900 ${size}px sans-serif`;
-      if (ctx.measureText(text).width <= maxWidth) break;
-      size -= 4;
-    } while (size > 48);
-    return size;
+  function drawTitle(ctx,title){
+    ctx.save();
+    ctx.fillStyle='#111512';
+    let size=76;
+    const maxWidth=680;
+    while(size>44){ctx.font=`900 ${size}px sans-serif`;if(ctx.measureText(title).width<=maxWidth)break;size-=4}
+    // Extra-large safe margins. No maxWidth scaling is needed after measuring.
+    originalFillText.call(ctx,title,150,142);
+    ctx.restore();
   }
 
-  CanvasRenderingContext2D.prototype.fillText = function(text, x, y, maxWidth) {
-    const canvas = this.canvas;
-    if (canvas?.width !== 1024 || canvas?.height !== 768) {
-      return originalFillText.call(this, text, x, y, maxWidth);
-    }
+  CanvasRenderingContext2D.prototype.fillText=function(text,x,y,maxWidth){
+    const canvas=this.canvas;
+    if(canvas?.width!==1024||canvas?.height!==768)return originalFillText.call(this,text,x,y,maxWidth);
+    let s=state.get(canvas);
+    if(!s){s={title:null,bodyDrawn:false};state.set(canvas,s)}
 
-    let s = state.get(canvas);
-    if (!s) { s = { title: null, bodyDrawn: false }; state.set(canvas, s); }
-
-    if (y === 145) {
-      s.title = String(text);
-      this.save();
-      this.fillStyle = '#111512';
-      const size = fitTitle(this, s.title);
-      this.font = `900 ${size}px sans-serif`;
-      // 120px left safe margin + 760px maximum text width = 120px right margin.
-      originalFillText.call(this, s.title, 120, 142, 760);
-      this.restore();
+    if(y===145){
+      s.title=String(text);
+      drawTitle(this,s.title);
       return;
     }
 
-    if (y >= 270 && y < 620 && s.title && strongCopy[s.title]) {
-      if (s.bodyDrawn) return;
-      s.bodyDrawn = true;
-      this.save();
-      this.fillStyle = '#161816';
-      this.font = '900 54px sans-serif';
-      const lines = splitLines(this, strongCopy[s.title], 720).slice(0, 4);
-      const lineHeight = 78;
-      const startY = lines.length <= 2 ? 335 : 300;
-      lines.forEach((line, i) => originalFillText.call(this, line, 120, startY + i * lineHeight, 720));
-      this.restore();
+    // app.js body-copy region. Replace once, then suppress every remaining original line.
+    if(y>=270&&y<620&&s.title){
+      if(!s.bodyDrawn){
+        s.bodyDrawn=true;
+        const copy=strongCopy[s.title]||String(text);
+        this.save();
+        this.fillStyle='#161816';
+        this.font='900 50px sans-serif';
+        const lines=splitLines(this,copy,680).slice(0,4);
+        const lineHeight=74,startY=lines.length<=2?345:305;
+        lines.forEach((line,i)=>originalFillText.call(this,line,150,startY+i*lineHeight));
+        this.restore();
+      }
       return;
     }
 
-    return originalFillText.call(this, text, x, y, maxWidth);
+    return originalFillText.call(this,text,x,y,maxWidth);
   };
 })();
